@@ -1,0 +1,194 @@
+ const express = require("express");
+const mongoose = require("mongoose");
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+
+// 🔗 MongoDB (poné tu link en Render como MONGO_URI)
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+}).then(() => console.log("DB conectada"))
+  .catch(err => console.log(err));
+
+// 📦 MODELOS
+const Usuario = mongoose.model("Usuario", {
+  user: String,
+  pass: String
+});
+
+const Solicitud = mongoose.model("Solicitud", {
+  user: String,
+  monto: Number,
+  aprobado: Boolean,
+  fecha: Date
+});
+
+// 🌐 FRONTEND (HTML integrado)
+app.get("/", (req, res) => {
+  res.send(`
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>AutoCrédito</title>
+<style>
+body {
+  font-family: Arial;
+  background: #0f172a;
+  color: white;
+  text-align: center;
+}
+.card {
+  background: #1e293b;
+  padding: 20px;
+  border-radius: 15px;
+  width: 300px;
+  margin: auto;
+  margin-top: 50px;
+}
+input, button {
+  margin: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: none;
+  width: 80%;
+}
+</style>
+</head>
+<body>
+
+<div class="card">
+<h2>AutoCrédito</h2>
+
+<input id="user" placeholder="Usuario">
+<input id="pass" type="password" placeholder="Contraseña">
+
+<button onclick="register()">Registrarse</button>
+<button onclick="login()">Entrar</button>
+
+<div id="app" style="display:none">
+<input id="monto" placeholder="Monto">
+<button onclick="pedir()">Solicitar crédito</button>
+
+<div id="res"></div>
+<div id="historial"></div>
+</div>
+</div>
+
+<script>
+let usuario = "";
+
+async function register(){
+  await fetch("/register", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json"},
+    body: JSON.stringify({
+      user: user.value,
+      pass: pass.value
+    })
+  });
+  alert("Registrado");
+}
+
+async function login(){
+  let r = await fetch("/login", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json"},
+    body: JSON.stringify({
+      user: user.value,
+      pass: pass.value
+    })
+  });
+
+  let data = await r.json();
+
+  if(data.ok){
+    usuario = user.value;
+    app.style.display = "block";
+    cargar();
+  } else {
+    alert("Error");
+  }
+}
+
+async function pedir(){
+  let r = await fetch("/solicitar", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json"},
+    body: JSON.stringify({
+      user: usuario,
+      monto: monto.value
+    })
+  });
+
+  let data = await r.json();
+
+  res.innerText = data.aprobado ? "✅ Aprobado" : "❌ Rechazado";
+  cargar();
+}
+
+async function cargar(){
+  let r = await fetch("/solicitudes/" + usuario);
+  let data = await r.json();
+
+  historial.innerHTML = "<h3>Historial</h3>";
+
+  data.forEach(s => {
+    historial.innerHTML += "<p>$" + s.monto + " - " + (s.aprobado ? "✔" : "✖") + "</p>";
+  });
+}
+</script>
+
+</body>
+</html>
+`);
+});
+
+// 🧾 REGISTRO
+app.post("/register", async (req, res) => {
+  const { user, pass } = req.body;
+
+  const existe = await Usuario.findOne({ user });
+  if (existe) return res.json({ ok: false });
+
+  await Usuario.create({ user, pass });
+  res.json({ ok: true });
+});
+
+// 🔐 LOGIN
+app.post("/login", async (req, res) => {
+  const { user, pass } = req.body;
+
+  const u = await Usuario.findOne({ user, pass });
+  if (!u) return res.json({ ok: false });
+
+  res.json({ ok: true });
+});
+
+// 💰 SOLICITAR
+app.post("/solicitar", async (req, res) => {
+  const { user, monto } = req.body;
+
+  let aprobado = monto < 500000;
+
+  await Solicitud.create({
+    user,
+    monto,
+    aprobado,
+    fecha: new Date()
+  });
+
+  res.json({ ok: true, aprobado });
+});
+
+// 📊 HISTORIAL
+app.get("/solicitudes/:user", async (req, res) => {
+  const data = await Solicitud.find({ user: req.params.user });
+  res.json(data);
+});
+
+// 🚀 SERVER
+app.listen(PORT, () => console.log("Servidor corriendo"));
